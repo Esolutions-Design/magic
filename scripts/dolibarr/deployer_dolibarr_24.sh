@@ -111,6 +111,28 @@ else
 fi
 printf 'ATTENTION : toute modification directe des fichiers du coeur sera remplacee.\n'
 
+# Les sauvegardes restent dans /root, meme sur un autre disque.
+# Les dossiers renommes doivent etre sur le meme systeme de fichiers que htdocs.
+# On utilise le repertoire private d'ISPConfig, hors de l'arborescence web.
+WEBROOT=$(dirname -- "$PARENT")
+SITE_HOME=$(dirname -- "$WEBROOT")
+PRIVATE="$SITE_HOME/private"
+[[ -d "$PRIVATE" ]] || fail "Repertoire prive ISPConfig absent : $PRIVATE"
+PRIVATE=$(readlink -f -- "$PRIVATE")
+[[ -d "$PRIVATE" && "$PRIVATE" != "/" && "$PRIVATE" != "$PARENT" && "$PRIVATE" != "$APP" ]] \
+    || fail 'Repertoire prive incorrect.'
+case "$PRIVATE/" in
+    "$WEBROOT/"*) fail 'Repertoire prive situe sous le repertoire web public.' ;;
+esac
+[[ "$(stat -c %d -- "$PRIVATE")" == "$(stat -c %d -- "$APP")" ]] \
+    || fail "Le dossier prive n'est pas sur le meme filesystem que htdocs : $PRIVATE"
+SESSION=$(basename -- "$BACKUP")
+STAGE="$PRIVATE/.dolibarr-24-stage-$SESSION"
+OLD_KEEP="$PRIVATE/.dolibarr-19-ancien-$SESSION"
+[[ ! -e "$STAGE" && ! -L "$STAGE" && ! -e "$OLD_KEEP" && ! -L "$OLD_KEEP" ]] \
+    || fail 'Un dossier de deploiement existe deja ; intervention manuelle requise.'
+printf 'Zone privee  : %s (meme filesystem que htdocs)\n' "$PRIVATE"
+
 if [[ "$MODE" == '--check' ]]; then
     printf '\nCONTROLES REUSSIS - AUCUN FICHIER DE PRODUCTION MODIFIE.\n'
     printf 'Ensuite, en fenetre de maintenance : bash %q --apply %q\n' "$0" "$APP"
@@ -121,14 +143,6 @@ printf '\nLa base et les documents doivent etre hors utilisation.\n'
 printf 'Le site ne doit pas rester accessible aux utilisateurs pendant la migration SQL.\n'
 read -r -p 'Pour effectuer le remplacement du CODE, taper DEPLOYER : ' CONFIRM
 [[ "$CONFIRM" == 'DEPLOYER' ]] || fail 'Operation annulee.'
-
-# Garde l'ancien code ET la version en cours de preparation hors du dossier public.
-# Les deux chemins doivent se trouver sur le meme filesystem pour un swap atomique.
-[[ "$(stat -c %d -- "$BACKUP")" == "$(stat -c %d -- "$PARENT")" ]] \
-    || fail 'Les sauvegardes sont sur un autre disque : bascule atomique impossible.'
-STAGE="$BACKUP/htdocs-nouveau-24.0.2"
-OLD_KEEP="$BACKUP/htdocs-code-19.0.2"
-[[ ! -e "$STAGE" && ! -e "$OLD_KEEP" ]] || fail 'Un repertoire de deploiement existe deja.'
 
 note 'Preparation de la nouvelle arborescence a cote de la production'
 mkdir -m 0750 -- "$STAGE"
